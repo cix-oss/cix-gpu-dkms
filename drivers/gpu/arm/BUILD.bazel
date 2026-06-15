@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
+#
+# (C) COPYRIGHT 2023-2025 ARM Limited. All rights reserved.
+#
+# This program is free software and is provided to you under the terms of the
+# GNU General Public License version 2 as published by the Free Software
+# Foundation, and any use by you of this program is subject to the terms
+# of such GNU license.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, you can access it online at
+# http://www.gnu.org/licenses/gpl-2.0.html.
+#
+#
+
+load(
+    "@kleaf//build/kernel/kleaf:kernel.bzl",
+    "ddk_headers",
+    "kernel_module_group",
+)
+load("//common-modules/cix/gpu_kernel:paths.bzl", "GPU_KERNEL_DRIVERS_GPU_ARM_MIDGARD", "GPU_KERNEL_DRIVERS_GPU_ARM_MIDGARD_TESTS", "GPU_KERNEL_CONFIG")
+
+package(
+    default_visibility = [
+        "//:__subpackages__",
+        "@kleaf//common:__pkg__",
+    ],
+)
+
+ddk_headers(
+    name = "mali_arbitration_shared_config_defaults",
+    includes = ["midgard"]
+)
+
+filegroup(
+    name = "gpu_kconfig",
+    srcs = [
+        GPU_KERNEL_DRIVERS_GPU_ARM_MIDGARD + ":midgard_kconfig",
+    ]
+)
+
+kernel_module_group(
+    name = "gpu",
+    srcs = [GPU_KERNEL_DRIVERS_GPU_ARM_MIDGARD + ":mali_kbase"] +
+           select({
+               GPU_KERNEL_CONFIG + ":mali_debug_kutf": [GPU_KERNEL_DRIVERS_GPU_ARM_MIDGARD_TESTS + ":mali_kutf_tests"],
+               "//conditions:default": [],
+           }),
+)

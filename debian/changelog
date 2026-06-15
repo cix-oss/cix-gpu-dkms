@@ -1,0 +1,6 @@
+cix-gpu-dkms (1.0.0-0ubuntu1) resolute; urgency=medium
+
+  * Import CIX GPU kernel module source as a DKMS package.
+  * Add Ubuntu kernel 7.0 compatibility patch.
+
+ -- Clay Stan <claystan97@gmail.com>  Mon, 15 Jun 2026 00:36:17 -0400

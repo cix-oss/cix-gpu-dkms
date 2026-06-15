@@ -1,0 +1,13 @@
+*.o
+*.cmd
+*.ko
+*.mod
+*.mod.c
+Module.symvers
+modules.order
+.pc/
+debian/.debhelper/
+debian/debhelper-build-stamp
+debian/files
+debian/*.substvars
+debian/*.debhelper

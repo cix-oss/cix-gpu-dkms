@@ -1,0 +1,438 @@
+From c3935e0094736d2d33bbb4450e7f0eeec8f4c438 Mon Sep 17 00:00:00 2001
+From: Jianfeng Liu <liujianfeng1994@gmail.com>
+Date: Fri, 12 Jun 2026 15:08:41 +0800
+Subject: [PATCH] fix build for kernel up to 7.0
+
+---
+ drivers/base/arm/Makefile                     | 13 ++--
+ drivers/gpu/arm/midgard/Makefile              | 17 ++--
+ .../backend/gpu/mali_kbase_irq_linux.c        |  6 ++
+ .../backend/gpu/mali_kbase_pm_driver.c        |  4 +
+ .../backend/gpu/mali_kbase_pm_metrics.c       |  5 ++
+ drivers/gpu/arm/midgard/csf/mali_kbase_csf.c  |  4 +-
+ .../gpu/arm/midgard/csf/mali_kbase_csf_kcpu.c |  4 +-
+ .../midgard/csf/mali_kbase_csf_scheduler.c    | 10 +++
+ .../midgard/csf/mali_kbase_csf_tl_reader.c    |  1 +
+ .../gpu/arm/midgard/mali_kbase_fence_ops.c    |  4 +
+ .../arm/midgard/mali_kbase_kinstr_prfcnt.c    |  5 ++
+ .../platform/sky1/mali_kbase_config_sky1.c    |  7 +-
+ include/linux/version_compat_defs.h           | 77 ++++++++++++++++++-
+ 13 files changed, 137 insertions(+), 20 deletions(-)
+
+diff --git a/drivers/base/arm/Makefile b/drivers/base/arm/Makefile
+index d694e6a..961583f 100644
+--- a/drivers/base/arm/Makefile
++++ b/drivers/base/arm/Makefile
+@@ -88,12 +88,13 @@ MAKE_ARGS := $(foreach config,$(CONFIGS), \
+                         $(value config)=n))
+ 
+ #
+-# EXTRA_CFLAGS to define the custom CONFIGs on out-of-tree build
++# KCFLAGS to define the custom CONFIGs on out-of-tree build.
++# Kernel >= 6.15 removed EXTRA_CFLAGS support (commit e966ad0edd00).
+ #
+ # Generate the list of CONFIGs defines with values from CONFIGS.
+ # $(value config) is the name of the CONFIG option.
+ # When set to y or m, the CONFIG gets defined to 1.
+-EXTRA_CFLAGS := $(foreach config,$(CONFIGS), \
++KCFLAGS := $(foreach config,$(CONFIGS), \
+                     $(if $(filter y m,$(value $(value config))), \
+                         -D$(value config)=1))
+ 
+@@ -102,13 +103,13 @@ CFLAGS_MODULE += -Wall -Werror
+ ifeq ($(CONFIG_GCOV_KERNEL), y)
+     CFLAGS_MODULE += $(call cc-option, -ftest-coverage)
+     CFLAGS_MODULE += $(call cc-option, -fprofile-arcs)
+-    EXTRA_CFLAGS += -DGCOV_PROFILE=1
++    KCFLAGS += -DGCOV_PROFILE=1
+ endif
+ 
+ ifeq ($(CONFIG_MALI_KCOV),y)
+     CFLAGS_MODULE += $(call cc-option, -fsanitize-coverage=trace-cmp)
+-    EXTRA_CFLAGS += -DKCOV=1
+-    EXTRA_CFLAGS += -DKCOV_ENABLE_COMPARISONS=1
++    KCFLAGS += -DKCOV=1
++    KCFLAGS += -DKCOV_ENABLE_COMPARISONS=1
+ endif
+ 
+ # The following were added to align with W=1 in scripts/Makefile.extrawarn
+@@ -156,7 +157,7 @@ KBUILD_CPPFLAGS += -DKBUILD_EXTRA_WARN2
+ CFLAGS_MODULE += -Wno-ignored-qualifiers
+ 
+ all:
+-	$(MAKE) -C $(KDIR) M=$(M) $(MAKE_ARGS) EXTRA_CFLAGS="$(EXTRA_CFLAGS)" KBUILD_EXTRA_SYMBOLS="$(EXTRA_SYMBOLS)" modules
++	$(MAKE) -C $(KDIR) M=$(M) $(MAKE_ARGS) KCFLAGS="$(KCFLAGS)" KBUILD_EXTRA_SYMBOLS="$(EXTRA_SYMBOLS)" modules
+ 
+ modules_install:
+ 	$(MAKE) -C $(KDIR) M=$(M) $(MAKE_ARGS) modules_install
+diff --git a/drivers/gpu/arm/midgard/Makefile b/drivers/gpu/arm/midgard/Makefile
+index f9d0855..83125dc 100644
+--- a/drivers/gpu/arm/midgard/Makefile
++++ b/drivers/gpu/arm/midgard/Makefile
+@@ -214,18 +214,19 @@ ifeq ($(MALI_KCONFIG_EXT_PREFIX),)
+ endif
+ 
+ #
+-# EXTRA_CFLAGS to define the custom CONFIGs on out-of-tree build
++# KCFLAGS to define the custom CONFIGs on out-of-tree build.
++# Kernel >= 6.15 removed EXTRA_CFLAGS support (commit e966ad0edd00).
+ #
+ # Generate the list of CONFIGs defines with values from CONFIGS.
+ # $(value config) is the name of the CONFIG option.
+ # When set to y or m, the CONFIG gets defined to 1.
+-EXTRA_CFLAGS := $(foreach config,$(CONFIGS), \
++KCFLAGS := $(foreach config,$(CONFIGS), \
+                     $(if $(filter y m,$(value $(value config))), \
+                         -D$(value config)=1))
+ 
+ ifeq ($(MALI_KCONFIG_EXT_PREFIX),)
+-    EXTRA_CFLAGS += -DCONFIG_MALI_PLATFORM_NAME='\"$(CONFIG_MALI_PLATFORM_NAME)\"'
+-    EXTRA_CFLAGS += -DCONFIG_MALI_NO_MALI_DEFAULT_GPU='\"$(CONFIG_MALI_NO_MALI_DEFAULT_GPU)\"'
++    KCFLAGS += -DCONFIG_MALI_PLATFORM_NAME='\"$(CONFIG_MALI_PLATFORM_NAME)\"'
++    KCFLAGS += -DCONFIG_MALI_NO_MALI_DEFAULT_GPU='\"$(CONFIG_MALI_NO_MALI_DEFAULT_GPU)\"'
+ endif
+ 
+ #
+@@ -286,17 +287,17 @@ CFLAGS_MODULE += -Wno-ignored-qualifiers
+ ifeq ($(CONFIG_GCOV_KERNEL),y)
+     CFLAGS_MODULE += $(call cc-option, -ftest-coverage)
+     CFLAGS_MODULE += $(call cc-option, -fprofile-arcs)
+-    EXTRA_CFLAGS += -DGCOV_PROFILE=1
++    KCFLAGS += -DGCOV_PROFILE=1
+ endif
+ 
+ ifeq ($(CONFIG_MALI_KCOV),y)
+     CFLAGS_MODULE += $(call cc-option, -fsanitize-coverage=trace-cmp)
+-    EXTRA_CFLAGS += -DKCOV=1
+-    EXTRA_CFLAGS += -DKCOV_ENABLE_COMPARISONS=1
++    KCFLAGS += -DKCOV=1
++    KCFLAGS += -DKCOV_ENABLE_COMPARISONS=1
+ endif
+ 
+ all:
+-	$(MAKE) -C $(KDIR) M=$(M) $(MAKE_ARGS) EXTRA_CFLAGS="$(EXTRA_CFLAGS)" KBUILD_EXTRA_SYMBOLS="$(EXTRA_SYMBOLS)" modules
++	$(MAKE) -C $(KDIR) M=$(M) $(MAKE_ARGS) KCFLAGS="$(KCFLAGS)" KBUILD_EXTRA_SYMBOLS="$(EXTRA_SYMBOLS)" modules
+ 
+ modules_install:
+ 	$(MAKE) -C $(KDIR) M=$(M) $(MAKE_ARGS) modules_install
+diff --git a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_irq_linux.c b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_irq_linux.c
+index 2a9030e..36eac5f 100644
+--- a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_irq_linux.c
++++ b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_irq_linux.c
+@@ -424,9 +424,15 @@ static int validate_interrupt(struct kbase_device *const kbdev, u32 tag)
+ 			err = -EINVAL;
+ 		} else {
+ 			kbasep_irq_test_data.timeout = 0;
++#if KERNEL_VERSION(6, 13, 0) <= LINUX_VERSION_CODE
++			hrtimer_setup(&kbasep_irq_test_data.timer,
++				      kbasep_test_interrupt_timeout, CLOCK_MONOTONIC,
++				      HRTIMER_MODE_REL);
++#else
+ 			hrtimer_init(&kbasep_irq_test_data.timer, CLOCK_MONOTONIC,
+ 				     HRTIMER_MODE_REL);
+ 			kbasep_irq_test_data.timer.function = kbasep_test_interrupt_timeout;
++#endif
+ 
+ 			/* trigger interrupt */
+ 			kbase_reg_write32(kbdev, mask_offset, 0x1);
+diff --git a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_pm_driver.c b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_pm_driver.c
+index ca1308c..55cdca3 100644
+--- a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_pm_driver.c
++++ b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_pm_driver.c
+@@ -2625,8 +2625,12 @@ int kbase_pm_state_machine_init(struct kbase_device *kbdev)
+ 
+ 	INIT_WORK(&stt->work, shader_poweroff_timer_stop_callback);
+ 
++#if KERNEL_VERSION(6, 13, 0) <= LINUX_VERSION_CODE
++	hrtimer_setup(&stt->timer, shader_tick_timer_callback, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
++#else
+ 	hrtimer_init(&stt->timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+ 	stt->timer.function = shader_tick_timer_callback;
++#endif
+ 	stt->configured_interval = HR_TIMER_DELAY_NSEC(DEFAULT_PM_GPU_POWEROFF_TICK_NS);
+ 	stt->default_ticks = DEFAULT_PM_POWEROFF_TICK_SHADER;
+ 	stt->configured_ticks = stt->default_ticks;
+diff --git a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_pm_metrics.c b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_pm_metrics.c
+index 9d1984d..fb048c9 100644
+--- a/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_pm_metrics.c
++++ b/drivers/gpu/arm/midgard/backend/gpu/mali_kbase_pm_metrics.c
+@@ -125,8 +125,13 @@ int kbasep_pm_metrics_init(struct kbase_device *kbdev)
+ 	spin_lock_init(&kbdev->pm.backend.metrics.lock);
+ 
+ #ifdef CONFIG_MALI_MIDGARD_DVFS
++#if KERNEL_VERSION(6, 13, 0) <= LINUX_VERSION_CODE
++	hrtimer_setup(&kbdev->pm.backend.metrics.timer, dvfs_callback, CLOCK_MONOTONIC,
++		      HRTIMER_MODE_REL);
++#else
+ 	hrtimer_init(&kbdev->pm.backend.metrics.timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+ 	kbdev->pm.backend.metrics.timer.function = dvfs_callback;
++#endif
+ 	kbdev->pm.backend.metrics.initialized = true;
+ 	atomic_set(&kbdev->pm.backend.metrics.timer_state, TIMER_OFF);
+ 	kbase_pm_metrics_start(kbdev);
+diff --git a/drivers/gpu/arm/midgard/csf/mali_kbase_csf.c b/drivers/gpu/arm/midgard/csf/mali_kbase_csf.c
+index a5197ca..6e02b1c 100644
+--- a/drivers/gpu/arm/midgard/csf/mali_kbase_csf.c
++++ b/drivers/gpu/arm/midgard/csf/mali_kbase_csf.c
+@@ -3880,7 +3880,7 @@ int kbase_csf_doorbell_mapping_init(struct kbase_device *kbdev)
+ 	struct file *filp;
+ 	int ret;
+ 
+-	filp = shmem_file_setup("mali csf db", MAX_LFS_FILESIZE, VM_NORESERVE);
++	filp = shmem_file_setup("mali csf db", MAX_LFS_FILESIZE, KBASE_VM_NORESERVE_FLAGS);
+ 	if (IS_ERR(filp))
+ 		return PTR_ERR(filp);
+ 
+@@ -3945,7 +3945,7 @@ int kbase_csf_setup_dummy_user_reg_page(struct kbase_device *kbdev)
+ 
+ 	kbdev->csf.user_reg.filp = NULL;
+ 
+-	filp = shmem_file_setup("mali csf user_reg", MAX_LFS_FILESIZE, VM_NORESERVE);
++	filp = shmem_file_setup("mali csf user_reg", MAX_LFS_FILESIZE, KBASE_VM_NORESERVE_FLAGS);
+ 	if (IS_ERR(filp)) {
+ 		dev_err(kbdev->dev, "failed to get an unlinked file for user_reg");
+ 		return PTR_ERR(filp);
+diff --git a/drivers/gpu/arm/midgard/csf/mali_kbase_csf_kcpu.c b/drivers/gpu/arm/midgard/csf/mali_kbase_csf_kcpu.c
+index 23179c8..b955433 100644
+--- a/drivers/gpu/arm/midgard/csf/mali_kbase_csf_kcpu.c
++++ b/drivers/gpu/arm/midgard/csf/mali_kbase_csf_kcpu.c
+@@ -1641,7 +1641,7 @@ static int kbase_kcpu_fence_force_signal_process(struct kbase_kcpu_command_queue
+ 	if (WARN_ON(!fence_info->fence))
+ 		return -EINVAL;
+ 
+-	ret = dma_fence_signal(fence_info->fence);
++	ret = kbase_dma_fence_signal_helper(fence_info->fence);
+ 	if (unlikely(ret < 0)) {
+ 		dev_warn(kctx->kbdev->dev, "dma_fence(%d) has been signalled already\n", ret);
+ 		/* Treated as a success */
+@@ -1779,7 +1779,7 @@ static int kbasep_kcpu_fence_signal_process(struct kbase_kcpu_command_queue *kcp
+ 	if (WARN_ON(!fence_info->fence))
+ 		return -EINVAL;
+ 
+-	ret = dma_fence_signal(fence_info->fence);
++	ret = kbase_dma_fence_signal_helper(fence_info->fence);
+ 
+ 	if (unlikely(ret < 0)) {
+ 		dev_warn(kctx->kbdev->dev, "dma_fence(%d) has been signalled already\n", ret);
+diff --git a/drivers/gpu/arm/midgard/csf/mali_kbase_csf_scheduler.c b/drivers/gpu/arm/midgard/csf/mali_kbase_csf_scheduler.c
+index 7fe9737..ac85f9f 100644
+--- a/drivers/gpu/arm/midgard/csf/mali_kbase_csf_scheduler.c
++++ b/drivers/gpu/arm/midgard/csf/mali_kbase_csf_scheduler.c
+@@ -8012,8 +8012,13 @@ int kbase_csf_scheduler_init(struct kbase_device *kbdev)
+ #endif /* !CONFIG_MALI_NO_MALI */
+ 
+ 	spin_lock_init(&scheduler->gpu_metrics_lock);
++#if KERNEL_VERSION(6, 13, 0) <= LINUX_VERSION_CODE
++	hrtimer_setup(&scheduler->gpu_metrics_timer, gpu_metrics_timer_callback, CLOCK_MONOTONIC,
++		      HRTIMER_MODE_REL_SOFT);
++#else
+ 	hrtimer_init(&scheduler->gpu_metrics_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL_SOFT);
+ 	scheduler->gpu_metrics_timer.function = gpu_metrics_timer_callback;
++#endif
+ #endif /* CONFIG_MALI_TRACE_POWER_GPU_WORK_PERIOD */
+ 
+ 	atomic_set(&scheduler->gpu_idle_timer_enabled, false);
+@@ -8052,8 +8057,13 @@ int kbase_csf_scheduler_early_init(struct kbase_device *kbdev)
+ 	KBASE_KTRACE_ADD(kbdev, SCHED_SUSPENDED, NULL, scheduler->state);
+ 	scheduler->csg_scheduling_period_ms = CSF_SCHEDULER_TIME_TICK_MS;
+ 	scheduler_doorbell_init(kbdev);
++#if KERNEL_VERSION(6, 13, 0) <= LINUX_VERSION_CODE
++	hrtimer_setup(&scheduler->tick_timer, tick_timer_callback, CLOCK_MONOTONIC,
++		      HRTIMER_MODE_REL);
++#else
+ 	hrtimer_init(&scheduler->tick_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+ 	scheduler->tick_timer.function = tick_timer_callback;
++#endif
+ 
+ 	atomic_set(&scheduler->pending_sync_update_works, false);
+ 	spin_lock_init(&scheduler->sync_update_work_ctxs_lock);
+diff --git a/drivers/gpu/arm/midgard/csf/mali_kbase_csf_tl_reader.c b/drivers/gpu/arm/midgard/csf/mali_kbase_csf_tl_reader.c
+index ac22c57..f9d35aa 100644
+--- a/drivers/gpu/arm/midgard/csf/mali_kbase_csf_tl_reader.c
++++ b/drivers/gpu/arm/midgard/csf/mali_kbase_csf_tl_reader.c
+@@ -32,6 +32,7 @@
+ #include "mali_kbase_hwaccess_time.h"
+ 
+ #include <linux/math64.h>
++#include <linux/version_compat_defs.h>
+ 
+ #if IS_ENABLED(CONFIG_DEBUG_FS)
+ #include "tl/mali_kbase_timeline_priv.h"
+diff --git a/drivers/gpu/arm/midgard/mali_kbase_fence_ops.c b/drivers/gpu/arm/midgard/mali_kbase_fence_ops.c
+index faaf4f1..5b2f349 100644
+--- a/drivers/gpu/arm/midgard/mali_kbase_fence_ops.c
++++ b/drivers/gpu/arm/midgard/mali_kbase_fence_ops.c
+@@ -45,6 +45,7 @@ static bool kbase_fence_enable_signaling(struct dma_fence *fence)
+ 	return true;
+ }
+ 
++#if (KERNEL_VERSION(6, 16, 0) > LINUX_VERSION_CODE)
+ static void kbase_fence_fence_value_str(struct dma_fence *fence, char *str, int size)
+ {
+ 	char *format;
+@@ -57,6 +58,7 @@ static void kbase_fence_fence_value_str(struct dma_fence *fence, char *str, int
+ 	if (unlikely(!scnprintf(str, (size_t)size, format, fence->seqno)))
+ 		pr_err("Fail to encode fence seqno to string");
+ }
++#endif
+ 
+ static void kbase_fence_release(struct dma_fence *fence)
+ {
+@@ -73,7 +75,9 @@ const struct dma_fence_ops kbase_fence_ops = { .wait = dma_fence_default_wait,
+ 					       .get_driver_name = kbase_fence_get_driver_name,
+ 					       .get_timeline_name = kbase_fence_get_timeline_name,
+ 					       .enable_signaling = kbase_fence_enable_signaling,
++#if (KERNEL_VERSION(6, 16, 0) > LINUX_VERSION_CODE)
+ 					       .fence_value_str = kbase_fence_fence_value_str,
++#endif
+ 					       .release = kbase_fence_release };
+ 
+ KBASE_EXPORT_TEST_API(kbase_fence_ops);
+diff --git a/drivers/gpu/arm/midgard/mali_kbase_kinstr_prfcnt.c b/drivers/gpu/arm/midgard/mali_kbase_kinstr_prfcnt.c
+index cb09556..48e4a96 100644
+--- a/drivers/gpu/arm/midgard/mali_kbase_kinstr_prfcnt.c
++++ b/drivers/gpu/arm/midgard/mali_kbase_kinstr_prfcnt.c
+@@ -1310,8 +1310,13 @@ int kbase_kinstr_prfcnt_init(struct kbase_hwcnt_virtualizer *hvirt,
+ 
+ 	mutex_init(&kinstr_ctx->lock);
+ 	INIT_LIST_HEAD(&kinstr_ctx->clients);
++#if KERNEL_VERSION(6, 13, 0) <= LINUX_VERSION_CODE
++	hrtimer_setup(&kinstr_ctx->dump_timer, kbasep_kinstr_prfcnt_dump_timer, CLOCK_MONOTONIC,
++		      HRTIMER_MODE_REL);
++#else
+ 	hrtimer_init(&kinstr_ctx->dump_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+ 	kinstr_ctx->dump_timer.function = kbasep_kinstr_prfcnt_dump_timer;
++#endif
+ 	INIT_WORK(&kinstr_ctx->dump_work, kbasep_kinstr_prfcnt_dump_worker);
+ 
+ 	*out_kinstr_ctx = kinstr_ctx;
+diff --git a/drivers/gpu/arm/midgard/platform/sky1/mali_kbase_config_sky1.c b/drivers/gpu/arm/midgard/platform/sky1/mali_kbase_config_sky1.c
+index 7aa1801..012b206 100644
+--- a/drivers/gpu/arm/midgard/platform/sky1/mali_kbase_config_sky1.c
++++ b/drivers/gpu/arm/midgard/platform/sky1/mali_kbase_config_sky1.c
+@@ -18,7 +18,7 @@
+ #include <linux/acpi.h>
+ #include <linux/pm_runtime.h>
+ 
+-bool enable_sky1_power_model = true;
++bool enable_sky1_power_model = false;
+ module_param(enable_sky1_power_model, bool, 0660);
+ MODULE_PARM_DESC(enable_sky1_power_model, "Select whether to enable sky1 power model.");
+ 
+@@ -310,8 +310,13 @@ static int kbase_platform_sky1_late_init(struct kbase_device *kbdev)
+ 
+ 	INIT_WORK(&kbdev->sky1_power_work, sky1_power_model_work_handler);
+ 
++#if KERNEL_VERSION(6, 13, 0) <= LINUX_VERSION_CODE
++	hrtimer_setup(&kbdev->sky1_power_timer, sky1_power_timer_callback, CLOCK_MONOTONIC,
++		      HRTIMER_MODE_REL);
++#else
+ 	hrtimer_init(&kbdev->sky1_power_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+ 	kbdev->sky1_power_timer.function = sky1_power_timer_callback;
++#endif
+ 
+ 	if(enable_sky1_power_model) {
+ 		hrtimer_start(&kbdev->sky1_power_timer,
+diff --git a/include/linux/version_compat_defs.h b/include/linux/version_compat_defs.h
+index 685067a..54d4491 100644
+--- a/include/linux/version_compat_defs.h
++++ b/include/linux/version_compat_defs.h
+@@ -117,6 +117,22 @@ static inline void kbase_timer_setup(struct timer_list *timer,
+ #endif
+ }
+ 
++/*
++ * Kernel 6.10 renamed del_timer() / del_timer_sync() to timer_delete() /
++ * timer_delete_sync() (commits 8fa7292fee5c, 9b13df3fb64e).
++ */
++#if KERNEL_VERSION(6, 10, 0) <= LINUX_VERSION_CODE
++static inline int del_timer(struct timer_list *timer)
++{
++	return timer_delete(timer);
++}
++
++static inline int del_timer_sync(struct timer_list *timer)
++{
++	return timer_delete_sync(timer);
++}
++#endif
++
+ #ifndef WRITE_ONCE
+ #ifdef ASSIGN_ONCE
+ #define WRITE_ONCE(x, val) ASSIGN_ONCE(val, x)
+@@ -642,7 +658,9 @@ static inline unsigned long
+ kbase_mm_get_unmapped_area_helper(struct mm_struct *mm, struct file *filp, unsigned long addr,
+ 				  unsigned long len, unsigned long pgoff, unsigned long flags)
+ {
+-#if (KERNEL_VERSION(6, 10, 0) <= LINUX_VERSION_CODE)
++#if (KERNEL_VERSION(6, 19, 0) <= LINUX_VERSION_CODE)
++	return mm_get_unmapped_area(filp, addr, len, pgoff, flags);
++#elif (KERNEL_VERSION(6, 10, 0) <= LINUX_VERSION_CODE)
+ 	return mm_get_unmapped_area(mm, filp, addr, len, pgoff, flags);
+ #else
+ 	return mm->get_unmapped_area(filp, addr, len, pgoff, flags);
+@@ -761,4 +779,61 @@ static inline int of_changeset_add_prop_string_array(struct of_changeset *ocs,
+ #define DEVFREQ_GOV_PASSIVE "passive"
+ #endif
+ 
++/*
++ * Kernel 6.17 removed __SetPageMovable() / __ClearPageMovable() as part of
++ * the rework that stops storing movable_operations in page->mapping (upstream
++ * commit 84caf98838a3 "mm: stop storing migration_ops in page->mapping").
++ *
++ * The replacement set_movable_ops() API only accepts PGTY_offline and
++ * PGTY_zsmalloc page types, so generic driver-owned pages (which the Mali
++ * driver relies on) can no longer be made movable through this interface.
++ *
++ * Provide no-op stubs so the driver still compiles on >= 6.17. Page migration
++ * of GPU pages is effectively disabled on these kernels, while the driver's
++ * own metadata-based tracking continues to work.
++ */
++#if (KERNEL_VERSION(6, 17, 0) <= LINUX_VERSION_CODE)
++#include <linux/migrate.h>
++static inline void __SetPageMovable(struct page *page, const struct movable_operations *ops)
++{
++	CSTD_UNUSED(page);
++	CSTD_UNUSED(ops);
++}
++
++static inline void __ClearPageMovable(struct page *page)
++{
++	CSTD_UNUSED(page);
++}
++#endif /* KERNEL_VERSION(6, 17, 0) <= LINUX_VERSION_CODE */
++
++/*
++ * Kernel 7.0 changed shmem_file_setup()'s @flags parameter from
++ * unsigned long to vma_flags_t (upstream commit 590d356aa433
++ * "mm: update shmem_[kernel]_file_*() functions to use vma_flags_t"),
++ * so VM_NORESERVE (still unsigned long) is no longer assignable.
++ *
++ * Provide a single token that resolves to the correct type per kernel.
++ */
++#if (KERNEL_VERSION(7, 0, 0) <= LINUX_VERSION_CODE)
++#define KBASE_VM_NORESERVE_FLAGS mk_vma_flags(VMA_NORESERVE_BIT)
++#else
++#define KBASE_VM_NORESERVE_FLAGS VM_NORESERVE
++#endif
++
++/*
++ * Kernel 7.0 changed dma_fence_signal() / dma_fence_signal_locked() to
++ * return void (upstream commit 88e721ab978a "dma-buf/dma-fence: Remove
++ * return code of signaling-functions"). The driver still wants an int
++ * return value to detect the "already signalled" case on older kernels.
++ */
++static inline int kbase_dma_fence_signal_helper(struct dma_fence *fence)
++{
++#if (KERNEL_VERSION(7, 0, 0) <= LINUX_VERSION_CODE)
++	dma_fence_signal(fence);
++	return 0;
++#else
++	return dma_fence_signal(fence);
++#endif
++}
++
+ #endif /* _VERSION_COMPAT_DEFS_H_ */
+-- 
+2.47.3
+

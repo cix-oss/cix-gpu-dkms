@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
+#
+# (C) COPYRIGHT 2023-2025 ARM Limited. All rights reserved.
+#
+# This program is free software and is provided to you under the terms of the
+# GNU General Public License version 2 as published by the Free Software
+# Foundation, and any use by you of this program is subject to the terms
+# of such GNU license.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, you can access it online at
+# http://www.gnu.org/licenses/gpl-2.0.html.
+#
+#
+
+load(
+    "@kleaf//build/kernel/kleaf:kernel.bzl",
+    "ddk_headers",
+    "kernel_module_group",
+)
+load(":paths.bzl", "GPU_KERNEL_DRIVERS_BASE_ARM", "GPU_KERNEL_DRIVERS_GPU_ARM", "GPU_KERNEL_DRIVERS_HWTRACING_CORESIGHT_MALI", "GPU_KERNEL_CONFIG")
+
+package(
+    default_visibility = [
+        "//:__subpackages__",
+        "@kleaf//common:__pkg__",
+    ],
+)
+
+ddk_headers(
+    name = "kernel_headers",
+    hdrs = glob([
+        "include/**/*.h",
+    ]),
+    includes = [
+        "include",
+        "include/linux",
+    ],
+)
+
+filegroup(
+    name = "kconfigs",
+    srcs = [
+               GPU_KERNEL_DRIVERS_BASE_ARM + ":base_kconfig",
+               GPU_KERNEL_DRIVERS_GPU_ARM + ":gpu_kconfig",
+           ] 
+           + select({
+               GPU_KERNEL_CONFIG + ":mali_coresight": [GPU_KERNEL_DRIVERS_HWTRACING_CORESIGHT_MALI + ":hwtracing_coresight_kconfig"],
+               "//conditions:default": [],
+           }),
+)
+
+kernel_module_group(
+    name = "modules",
+    srcs = [
+               GPU_KERNEL_DRIVERS_BASE_ARM + ":base",
+               GPU_KERNEL_DRIVERS_GPU_ARM + ":gpu",
+           ] 
+           + select({
+               GPU_KERNEL_CONFIG + ":mali_coresight": [GPU_KERNEL_DRIVERS_HWTRACING_CORESIGHT_MALI + ":hwtracing_coresight"],
+               "//conditions:default": [],
+           }),
+)

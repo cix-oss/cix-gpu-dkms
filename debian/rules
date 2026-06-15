@@ -1,0 +1,14 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@ --with dkms
+
+override_dh_auto_build:
+
+override_dh_auto_clean:
+	find . -type f \( -name '*.o' -o -name '*.ko' -o -name '*.cmd' -o -name '*.mod' -o -name '*.mod.c' -o -name '*.order' -o -name '*.symvers' -o -name 'modules.order' -o -name 'Module.symvers' \) -delete
+	find . -type d -name '.tmp_versions' -prune -exec rm -rf {} +
+
+override_dh_auto_install:
+
+override_dh_auto_test:

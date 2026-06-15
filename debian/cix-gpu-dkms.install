@@ -1,0 +1,10 @@
+BUILD.bazel usr/src/cix-gpu-kmd-1.0.0/
+Makefile usr/src/cix-gpu-kmd-1.0.0/
+Mconfig usr/src/cix-gpu-kmd-1.0.0/
+build.bp usr/src/cix-gpu-kmd-1.0.0/
+config usr/src/cix-gpu-kmd-1.0.0/
+drivers usr/src/cix-gpu-kmd-1.0.0/
+gpu.mk usr/src/cix-gpu-kmd-1.0.0/
+include usr/src/cix-gpu-kmd-1.0.0/
+patches usr/src/cix-gpu-kmd-1.0.0/
+paths.bzl usr/src/cix-gpu-kmd-1.0.0/
